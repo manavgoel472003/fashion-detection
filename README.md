@@ -105,6 +105,7 @@ reports model availability.
 | `RECAMERA_HOST` | `192.168.42.1` | Default reCamera host |
 | `RECAMERA_PORT` | `8090` | reCamera JSON preview WebSocket port |
 | `RECAMERA_TIMEOUT` | `5` | Connection timeout in seconds |
+| `RECAMERA_FPS` | `15` | Processing target; actual FPS is limited by the camera stream |
 
 ## Project layout
 

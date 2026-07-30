@@ -29,6 +29,7 @@ DEFAULT_IMAGE_SIZE = int(os.getenv("FASHION_IMAGE_SIZE", "640"))
 DEFAULT_RECAMERA_HOST = os.getenv("RECAMERA_HOST", "192.168.42.1")
 DEFAULT_RECAMERA_PORT = int(os.getenv("RECAMERA_PORT", "8090"))
 DEFAULT_RECAMERA_TIMEOUT = float(os.getenv("RECAMERA_TIMEOUT", "5"))
+DEFAULT_RECAMERA_FPS = float(os.getenv("RECAMERA_FPS", "15"))
 
 app = FastAPI(
     title="Fashion Detection Demo",
@@ -66,7 +67,7 @@ class ReCameraDetectionRequest(BaseModel):
 
 
 class ReCameraStreamRequest(ReCameraDetectionRequest):
-    fps: float = Field(default=8.0, ge=0.5, le=30.0)
+    fps: float = Field(default=DEFAULT_RECAMERA_FPS, ge=0.5, le=30.0)
 
 
 def get_model() -> YOLO:

@@ -81,6 +81,7 @@ Available settings:
 | `RECAMERA_HOST` | `192.168.42.1` | Default Seeed reCamera IP or hostname |
 | `RECAMERA_PORT` | `8090` | JSON preview WebSocket port |
 | `RECAMERA_TIMEOUT` | `5` | Stream connection timeout in seconds |
+| `RECAMERA_FPS` | `15` | Continuous detection target FPS |
 
 The application automatically loads `.env` at startup. Do not commit `.env`;
 it is already excluded by `.gitignore`.
