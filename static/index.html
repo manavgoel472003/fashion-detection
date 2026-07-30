@@ -273,8 +273,8 @@
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Detection failed");
-      render(payload);
-      status.textContent = `${payload.count} item${payload.count === 1 ? "" : "s"} detected`;
+      const visibleCount = render(payload);
+      status.textContent = `${visibleCount} item${visibleCount === 1 ? "" : "s"} detected`;
     } catch (error) {
       status.textContent = error.message;
     } finally {
@@ -292,9 +292,9 @@
         if (!recameraActive || generation !== recameraGeneration) return;
         if (payload.result && payload.sequence !== recameraSequence) {
           recameraSequence = payload.sequence;
-          await showRecameraFrame(payload.result);
+          const visibleCount = await showRecameraFrame(payload.result);
           const fps = payload.result.stream_fps ? ` · ${payload.result.stream_fps} FPS` : "";
-          status.textContent = `Continuous reCamera · ${payload.result.count} item${payload.result.count === 1 ? "" : "s"}${fps}`;
+          status.textContent = `Continuous reCamera · ${visibleCount} item${visibleCount === 1 ? "" : "s"}${fps}`;
         } else if (payload.connecting) {
           status.textContent = payload.error ? `Reconnecting: ${payload.error}` : `Connecting to reCamera ${host}…`;
         } else if (!payload.running && payload.error) {
@@ -316,11 +316,12 @@
           video.style.display = "none";
           preview.style.display = "block";
           empty.style.display = "none";
-          render(payload);
+          resolve(render(payload));
+          return;
         }
-        resolve();
+        resolve(0);
       };
-      preview.onerror = resolve;
+      preview.onerror = () => resolve(0);
       preview.src = `data:image/jpeg;base64,${payload.image}`;
     });
   }
@@ -345,6 +346,10 @@
   }
 
   function render(payload) {
+    const minimumConfidence = Number(confidence.value) / 100;
+    const visibleDetections = payload.detections.filter(
+      item => item.confidence >= minimumConfidence
+    );
     const rect = source.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
     overlay.width = stageRect.width * devicePixelRatio;
@@ -360,7 +365,7 @@
     const offsetY = rect.top - stageRect.top + (rect.height - drawnH) / 2;
 
     const sideCounts = { left: 0, right: 0 };
-    for (const item of payload.detections) {
+    for (const item of visibleDetections) {
       const [x1, y1, x2, y2] = item.box;
       const color = colors[item.label] || "#d7ff43";
       const x = offsetX + x1 * scale, y = offsetY + y1 * scale;
@@ -428,9 +433,10 @@
       ctx.fill();
     }
 
-    detections.innerHTML = payload.detections.length
-      ? payload.detections.map(item => `<div class="detection"><strong>${escapeHtml(item.label)}</strong><span>${Math.round(item.confidence * 100)}%</span><small>box ${item.box.map(Math.round).join(", ")}</small></div>`).join("")
+    detections.innerHTML = visibleDetections.length
+      ? visibleDetections.map(item => `<div class="detection"><strong>${escapeHtml(item.label)}</strong><span>${Math.round(item.confidence * 100)}%</span><small>box ${item.box.map(Math.round).join(", ")}</small></div>`).join("")
       : '<div class="placeholder">No fashion items found above this confidence.</div>';
+    return visibleDetections.length;
   }
 
   function drawFocusCrop(ctx, image, box, imageWidth, imageHeight, destination) {
