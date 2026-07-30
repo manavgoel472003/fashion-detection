@@ -144,6 +144,7 @@
   let busy = false;
   let recameraActive = false;
   let recameraGeneration = 0;
+  let recameraSequence = -1;
   const colors = { clothing: "#d7ff43", shoes: "#ff8f66", bags: "#8e7cff", accessories: "#55dfff" };
 
   confidence.addEventListener("input", () => confidenceValue.textContent = `${confidence.value}%`);
@@ -205,8 +206,21 @@
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "reCamera check failed");
       if (!payload.stream_reachable) throw new Error(payload.hint || "reCamera stream port 8090 is unavailable");
-      status.textContent = `Connected to reCamera ${host}`;
-      runRecameraLoop(generation, host);
+      const startResponse = await fetch("/api/recamera/stream/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host,
+          port: 8090,
+          confidence: Number(confidence.value) / 100,
+          fps: 8
+        })
+      });
+      const startPayload = await startResponse.json();
+      if (!startResponse.ok) throw new Error(startPayload.detail || "Could not start continuous detection");
+      recameraSequence = -1;
+      status.textContent = `Continuous detection starting on ${host}…`;
+      pollRecameraStream(generation, host);
     } catch (error) {
       if (generation === recameraGeneration) stopRecamera(error.message);
     }
@@ -260,25 +274,24 @@
     }
   }
 
-  async function runRecameraLoop(generation, host) {
+  async function pollRecameraStream(generation, host) {
     while (recameraActive && generation === recameraGeneration) {
       try {
-        status.textContent = `Analyzing reCamera ${host}…`;
-        const response = await fetch("/api/recamera/detect", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            host,
-            port: 8090,
-            confidence: Number(confidence.value) / 100
-          })
-        });
+        const response = await fetch("/api/recamera/stream/status", { cache: "no-store" });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "reCamera detection failed");
+        if (!response.ok) throw new Error(payload.detail || "reCamera stream status failed");
         if (!recameraActive || generation !== recameraGeneration) return;
-        await showRecameraFrame(payload);
-        status.textContent = `reCamera live · ${payload.count} item${payload.count === 1 ? "" : "s"}`;
-        await delay(120);
+        if (payload.result && payload.sequence !== recameraSequence) {
+          recameraSequence = payload.sequence;
+          await showRecameraFrame(payload.result);
+          const fps = payload.result.stream_fps ? ` · ${payload.result.stream_fps} FPS` : "";
+          status.textContent = `Continuous reCamera · ${payload.result.count} item${payload.result.count === 1 ? "" : "s"}${fps}`;
+        } else if (payload.connecting) {
+          status.textContent = payload.error ? `Reconnecting: ${payload.error}` : `Connecting to reCamera ${host}…`;
+        } else if (!payload.running && payload.error) {
+          status.textContent = `Stream error: ${payload.error}`;
+        }
+        await delay(150);
       } catch (error) {
         if (generation === recameraGeneration) stopRecamera(error.message);
         return;
@@ -304,8 +317,13 @@
   }
 
   function stopRecamera(message = null) {
-    if (recameraActive) recameraGeneration += 1;
+    const wasActive = recameraActive;
+    if (wasActive) recameraGeneration += 1;
     recameraActive = false;
+    recameraSequence = -1;
+    if (wasActive) {
+      fetch("/api/recamera/stream/stop", { method: "POST" }).catch(() => {});
+    }
     recameraButton.textContent = "Start reCamera";
     recameraButton.classList.remove("secondary");
     recameraHost.disabled = false;

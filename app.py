@@ -7,6 +7,7 @@ import os
 import re
 import socket
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,20 @@ app = FastAPI(
 
 _model: YOLO | None = None
 _model_lock = threading.RLock()
+_stream_lock = threading.RLock()
+_stream_stop = threading.Event()
+_stream_thread: threading.Thread | None = None
+_stream_connection: Any | None = None
+_stream_state: dict[str, Any] = {
+    "running": False,
+    "connecting": False,
+    "error": None,
+    "sequence": 0,
+    "result": None,
+    "params": None,
+    "started_at": None,
+    "updated_at": None,
+}
 
 
 class DetectionRequest(BaseModel):
@@ -48,6 +63,10 @@ class ReCameraDetectionRequest(BaseModel):
     host: str = Field(default=DEFAULT_RECAMERA_HOST, min_length=1, max_length=253)
     port: int = Field(default=DEFAULT_RECAMERA_PORT, ge=1, le=65535)
     confidence: float = Field(default=DEFAULT_CONFIDENCE, ge=0.05, le=0.95)
+
+
+class ReCameraStreamRequest(ReCameraDetectionRequest):
+    fps: float = Field(default=8.0, ge=0.5, le=30.0)
 
 
 def get_model() -> YOLO:
@@ -166,6 +185,114 @@ def port_reachable(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def serialize_recamera_result(frame: dict[str, Any], confidence: float) -> dict[str, Any]:
+    started = time.perf_counter()
+    result = run_detection(decode_image(frame["image"]), confidence)
+    return {
+        **result,
+        "image": frame["image"].split(",", 1)[-1].strip(),
+        "recamera": {
+            "source": frame["source"],
+            "resolution": frame["resolution"],
+            "onboard_labels": frame["onboard_labels"],
+            "onboard_boxes": frame["onboard_boxes"],
+        },
+        "inference_ms": round((time.perf_counter() - started) * 1000.0, 1),
+    }
+
+
+def recamera_stream_worker(params: dict[str, Any]) -> None:
+    global _stream_connection
+    source = f"ws://{params['host']}:{params['port']}"
+    minimum_period = 1.0 / params["fps"]
+    next_inference_at = 0.0
+    previous_result_at = 0.0
+    connection = None
+    try:
+        while not _stream_stop.is_set():
+            try:
+                with _stream_lock:
+                    _stream_state.update(connecting=True, error=None, updated_at=time.time())
+                connection = websocket.create_connection(source, timeout=DEFAULT_RECAMERA_TIMEOUT)
+                connection.settimeout(1.0)
+                with _stream_lock:
+                    _stream_connection = connection
+                    _stream_state.update(running=True, connecting=False, error=None, updated_at=time.time())
+
+                while not _stream_stop.is_set():
+                    try:
+                        raw = connection.recv()
+                    except websocket.WebSocketTimeoutException:
+                        continue
+                    now = time.perf_counter()
+                    if now < next_inference_at:
+                        continue
+                    next_inference_at = now + minimum_period
+                    frame = parse_recamera_payload(raw, source)
+                    result = serialize_recamera_result(frame, params["confidence"])
+                    completed_at = time.time()
+                    result["stream_fps"] = (
+                        0.0 if previous_result_at <= 0 else round(1.0 / max(0.001, completed_at - previous_result_at), 2)
+                    )
+                    previous_result_at = completed_at
+                    with _stream_lock:
+                        sequence = int(_stream_state["sequence"]) + 1
+                        result["sequence"] = sequence
+                        _stream_state.update(
+                            running=True,
+                            connecting=False,
+                            error=None,
+                            sequence=sequence,
+                            result=result,
+                            updated_at=completed_at,
+                        )
+            except websocket.WebSocketTimeoutException:
+                continue
+            except Exception as exc:
+                if _stream_stop.is_set():
+                    break
+                with _stream_lock:
+                    _stream_state.update(
+                        running=False,
+                        connecting=True,
+                        error=str(exc),
+                        updated_at=time.time(),
+                    )
+                time.sleep(0.5)
+            finally:
+                if connection is not None:
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+                connection = None
+                with _stream_lock:
+                    _stream_connection = None
+    finally:
+        with _stream_lock:
+            _stream_connection = None
+            _stream_state.update(running=False, connecting=False, updated_at=time.time())
+
+
+def stop_recamera_stream() -> None:
+    global _stream_thread, _stream_connection
+    with _stream_lock:
+        thread = _stream_thread
+        connection = _stream_connection
+        _stream_stop.set()
+    if connection is not None:
+        try:
+            connection.close()
+        except Exception:
+            pass
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=3.0)
+    with _stream_lock:
+        _stream_thread = None
+        _stream_connection = None
+        _stream_state.update(running=False, connecting=False, updated_at=time.time())
+
+
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(ROOT / "static" / "index.html")
@@ -211,15 +338,54 @@ def recamera_status(host: str = DEFAULT_RECAMERA_HOST, port: int = DEFAULT_RECAM
 @app.post("/api/recamera/detect")
 def detect_recamera(payload: ReCameraDetectionRequest) -> dict[str, Any]:
     frame = capture_recamera_frame(payload.host, payload.port)
-    result = run_detection(decode_image(frame["image"]), payload.confidence)
-    image_b64 = frame["image"].split(",", 1)[-1].strip()
-    return {
-        **result,
-        "image": image_b64,
-        "recamera": {
-            "source": frame["source"],
-            "resolution": frame["resolution"],
-            "onboard_labels": frame["onboard_labels"],
-            "onboard_boxes": frame["onboard_boxes"],
-        },
+    return serialize_recamera_result(frame, payload.confidence)
+
+
+@app.post("/api/recamera/stream/start")
+def start_recamera_stream(payload: ReCameraStreamRequest) -> dict[str, Any]:
+    global _stream_thread
+    host = validate_recamera_host(payload.host)
+    params = {
+        "host": host,
+        "port": payload.port,
+        "confidence": payload.confidence,
+        "fps": payload.fps,
     }
+    stop_recamera_stream()
+    _stream_stop.clear()
+    with _stream_lock:
+        _stream_state.update(
+            running=False,
+            connecting=True,
+            error=None,
+            sequence=0,
+            result=None,
+            params=params,
+            started_at=time.time(),
+            updated_at=time.time(),
+        )
+        _stream_thread = threading.Thread(
+            target=recamera_stream_worker,
+            args=(params,),
+            name="recamera-fashion-stream",
+            daemon=True,
+        )
+        _stream_thread.start()
+    return {"ok": True, "running": True, "params": params}
+
+
+@app.get("/api/recamera/stream/status")
+def get_recamera_stream_status() -> dict[str, Any]:
+    with _stream_lock:
+        return {"ok": True, **_stream_state}
+
+
+@app.post("/api/recamera/stream/stop")
+def end_recamera_stream() -> dict[str, Any]:
+    stop_recamera_stream()
+    return {"ok": True, "running": False}
+
+
+@app.on_event("shutdown")
+def shutdown_recamera_stream() -> None:
+    stop_recamera_stream()

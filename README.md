@@ -41,14 +41,25 @@ address is `192.168.42.1`.
 3. Start this application, enter the reCamera IP in the sidebar, and select
    **Start reCamera**.
 
-The application reads frames from `ws://<host>:8090`, runs the bundled fashion
-model on the host computer, and displays the annotated live result. A Reachy
-Mini is optional.
+The application keeps one persistent connection to `ws://<host>:8090`, runs the
+bundled fashion model continuously on the host computer, and displays annotated
+live results with the measured processing FPS. A Reachy Mini is optional.
 
 Check connectivity from the API:
 
 ```bash
 curl "http://localhost:8000/api/recamera/status?host=192.168.42.1&port=8090"
+```
+
+Continuous detection can also be controlled through the API:
+
+```bash
+curl -X POST http://localhost:8000/api/recamera/stream/start \
+  -H "Content-Type: application/json" \
+  -d '{"host":"192.168.42.1","port":8090,"confidence":0.35,"fps":8}'
+
+curl http://localhost:8000/api/recamera/stream/status
+curl -X POST http://localhost:8000/api/recamera/stream/stop
 ```
 
 ## API
