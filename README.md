@@ -1,17 +1,21 @@
 # Fashion Detection Demo
 
-A browser-based clothing detector powered by YOLOv8. Use a browser webcam, a
-Seeed reCamera, or upload a photo to find four fashion categories:
+A browser-based clothing detector powered by YOLOv8 and DeepFashion2. Use a
+browser webcam, a Seeed reCamera, or upload a photo to identify:
 
-- tops
-- bottoms
-- shoes
-- bags
-- accessories
+- T-shirts and shirts
+- dresses
+- pants, including jeans
+- shorts and skirts
+- jackets and other tops
 
 The repository includes the trained model weights, a FastAPI inference API, and
 a responsive web interface that draws cinematic detection boxes, connector
 lines, and floating magnified garment crops over the live image.
+
+The detailed garment checkpoint is
+[`deepfashion2_yolov8s-seg.pt`](https://huggingface.co/Bingsu/adetailer), trained
+for the 13 DeepFashion2 garment classes and distributed under Apache-2.0.
 
 ## Run locally
 
@@ -85,10 +89,12 @@ The response includes the original image dimensions and a list of detections:
   "count": 1,
   "detections": [
     {
-      "label": "clothing",
+      "label": "t-shirt",
       "confidence": 0.91,
       "box": [210.4, 86.2, 792.8, 684.5],
-      "class_id": 2
+      "class_id": 0,
+      "garment_type": "short_sleeved_shirt",
+      "group": "upper"
     }
   ]
 }
@@ -101,7 +107,7 @@ reports model availability.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `FASHION_MODEL_PATH` | `models/yolov8n-clothing-detection.pt` | Path to the YOLO weights |
+| `FASHION_MODEL_PATH` | `models/deepfashion2_yolov8s-seg.pt` | Path to the YOLO weights |
 | `FASHION_CONFIDENCE` | `0.35` | Default confidence threshold |
 | `FASHION_IMAGE_SIZE` | `640` | Inference image size |
 | `RECAMERA_HOST` | `192.168.42.1` | Default reCamera host |
@@ -117,6 +123,7 @@ reports model availability.
 ├── .env.example
 ├── INSTALL.md
 ├── models/
+│   ├── deepfashion2_yolov8s-seg.pt
 │   └── yolov8n-clothing-detection.pt
 ├── static/
 │   └── index.html

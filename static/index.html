@@ -83,7 +83,7 @@
       <div class="eyebrow">Computer vision demo</div>
       <h1>Fashion Lens</h1>
     </div>
-    <div class="subhead">Live outfit analysis with cinematic focus callouts for tops, bottoms, shoes, bags, and accessories.</div>
+    <div class="subhead">Live garment analysis with cinematic focus callouts for shirts, T-shirts, dresses, pants, and more.</div>
   </header>
 
   <div class="grid">
@@ -115,8 +115,8 @@
         <input id="confidence" type="range" min="10" max="90" value="35">
       </div>
       <div class="legend">
-        <span class="chip">Tops</span><span class="chip">Bottoms</span><span class="chip">Shoes</span>
-        <span class="chip">Bags</span><span class="chip">Accessories</span>
+        <span class="chip">T-shirts</span><span class="chip">Shirts</span><span class="chip">Dresses</span>
+        <span class="chip">Pants</span><span class="chip">Shorts</span><span class="chip">Skirts</span>
       </div>
       <h2>Detections</h2>
       <div id="detections"><div class="placeholder">Nothing analyzed yet.</div></div>
@@ -146,11 +146,14 @@
   let recameraGeneration = 0;
   let recameraSequence = -1;
   const colors = {
+    "t-shirt": "#d7ff43",
+    shirt: "#a7ff6a",
     top: "#d7ff43",
-    bottom: "#55dfff",
-    shoes: "#ff8f66",
-    bags: "#8e7cff",
-    accessories: "#ff6fcf"
+    jacket: "#ffb347",
+    dress: "#ff6fcf",
+    pants: "#55dfff",
+    shorts: "#55dfff",
+    skirt: "#8e7cff"
   };
 
   confidence.addEventListener("input", () => confidenceValue.textContent = `${confidence.value}%`);

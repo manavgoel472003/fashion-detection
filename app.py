@@ -23,13 +23,29 @@ import websocket
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
-MODEL_PATH = Path(os.getenv("FASHION_MODEL_PATH", ROOT / "models" / "yolov8n-clothing-detection.pt"))
+MODEL_PATH = Path(os.getenv("FASHION_MODEL_PATH", ROOT / "models" / "deepfashion2_yolov8s-seg.pt"))
 DEFAULT_CONFIDENCE = float(os.getenv("FASHION_CONFIDENCE", "0.35"))
 DEFAULT_IMAGE_SIZE = int(os.getenv("FASHION_IMAGE_SIZE", "640"))
 DEFAULT_RECAMERA_HOST = os.getenv("RECAMERA_HOST", "192.168.42.1")
 DEFAULT_RECAMERA_PORT = int(os.getenv("RECAMERA_PORT", "8090"))
 DEFAULT_RECAMERA_TIMEOUT = float(os.getenv("RECAMERA_TIMEOUT", "5"))
 DEFAULT_RECAMERA_FPS = float(os.getenv("RECAMERA_FPS", "15"))
+
+GARMENT_LABELS = {
+    "short_sleeved_shirt": ("t-shirt", "upper"),
+    "long_sleeved_shirt": ("shirt", "upper"),
+    "short_sleeved_outwear": ("jacket", "upper"),
+    "long_sleeved_outwear": ("jacket", "upper"),
+    "vest": ("top", "upper"),
+    "sling": ("top", "upper"),
+    "shorts": ("shorts", "lower"),
+    "trousers": ("pants", "lower"),
+    "skirt": ("skirt", "lower"),
+    "short_sleeved_dress": ("dress", "one-piece"),
+    "long_sleeved_dress": ("dress", "one-piece"),
+    "vest_dress": ("dress", "one-piece"),
+    "sling_dress": ("dress", "one-piece"),
+}
 
 app = FastAPI(
     title="Fashion Detection Demo",
@@ -149,6 +165,7 @@ def run_detection(image: np.ndarray, confidence: float) -> dict[str, Any]:
                 image,
                 conf=confidence,
                 imgsz=DEFAULT_IMAGE_SIZE,
+                agnostic_nms=True,
                 verbose=False,
             )[0]
     except RuntimeError:
@@ -168,7 +185,7 @@ def run_detection(image: np.ndarray, confidence: float) -> dict[str, Any]:
                     "class_id": class_id,
                 }
             )
-    detections = normalize_garment_categories(detections, width=width, height=height)
+    detections = normalize_garment_categories(detections)
     detections.sort(key=lambda item: item["confidence"], reverse=True)
     return {
         "ok": True,
@@ -181,38 +198,16 @@ def run_detection(image: np.ndarray, confidence: float) -> dict[str, Any]:
 
 def normalize_garment_categories(
     detections: list[dict[str, Any]],
-    *,
-    width: int,
-    height: int,
 ) -> list[dict[str, Any]]:
-    """Split generic clothing regions into top and bottom garment categories."""
+    """Convert DeepFashion2 class names into concise display categories."""
     normalized: list[dict[str, Any]] = []
-    waist_y = height * 0.56
-    minimum_segment_height = height * 0.10
 
     for detection in detections:
-        if detection["label"] != "clothing":
-            normalized.append(detection)
-            continue
-
-        x1, y1, x2, y2 = detection["box"]
-        crosses_waist = (
-            y1 < waist_y < y2
-            and waist_y - y1 >= minimum_segment_height
-            and y2 - waist_y >= minimum_segment_height
-            and y2 - y1 >= height * 0.28
-        )
-        if crosses_waist:
-            overlap = height * 0.025
-            top = dict(detection)
-            top.update(label="top", class_id=10, box=[x1, y1, x2, min(y2, waist_y + overlap)])
-            bottom = dict(detection)
-            bottom.update(label="bottom", class_id=11, box=[x1, max(y1, waist_y - overlap), x2, y2])
-            normalized.extend((top, bottom))
-        else:
-            garment = dict(detection)
-            garment.update(label="top" if (y1 + y2) / 2.0 < waist_y else "bottom")
-            normalized.append(garment)
+        raw_label = detection["label"]
+        display_label, group = GARMENT_LABELS.get(raw_label, (raw_label.replace("_", " "), "other"))
+        garment = dict(detection)
+        garment.update(label=display_label, garment_type=raw_label, group=group)
+        normalized.append(garment)
 
     return normalized
 
@@ -344,7 +339,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "model": MODEL_PATH.name,
         "model_available": MODEL_PATH.is_file(),
-        "classes": ["accessories", "bags", "clothing", "shoes"],
+        "classes": sorted({label for label, _ in GARMENT_LABELS.values()}),
         "recamera_default": f"ws://{DEFAULT_RECAMERA_HOST}:{DEFAULT_RECAMERA_PORT}",
     }
 
