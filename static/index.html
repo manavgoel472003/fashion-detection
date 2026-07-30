@@ -83,7 +83,7 @@
       <div class="eyebrow">Computer vision demo</div>
       <h1>Fashion Lens</h1>
     </div>
-    <div class="subhead">Point your camera at an outfit or upload an image to detect clothing, shoes, bags, and accessories.</div>
+    <div class="subhead">Live outfit analysis with cinematic focus callouts for tops, bottoms, shoes, bags, and accessories.</div>
   </header>
 
   <div class="grid">
@@ -115,7 +115,7 @@
         <input id="confidence" type="range" min="10" max="90" value="35">
       </div>
       <div class="legend">
-        <span class="chip">Clothing</span><span class="chip">Shoes</span>
+        <span class="chip">Tops</span><span class="chip">Bottoms</span><span class="chip">Shoes</span>
         <span class="chip">Bags</span><span class="chip">Accessories</span>
       </div>
       <h2>Detections</h2>
@@ -145,7 +145,13 @@
   let recameraActive = false;
   let recameraGeneration = 0;
   let recameraSequence = -1;
-  const colors = { clothing: "#d7ff43", shoes: "#ff8f66", bags: "#8e7cff", accessories: "#55dfff" };
+  const colors = {
+    top: "#d7ff43",
+    bottom: "#55dfff",
+    shoes: "#ff8f66",
+    bags: "#8e7cff",
+    accessories: "#ff6fcf"
+  };
 
   confidence.addEventListener("input", () => confidenceValue.textContent = `${confidence.value}%`);
 
@@ -350,26 +356,109 @@
     const offsetX = rect.left - stageRect.left + (rect.width - drawnW) / 2;
     const offsetY = rect.top - stageRect.top + (rect.height - drawnH) / 2;
 
+    const sideCounts = { left: 0, right: 0 };
     for (const item of payload.detections) {
       const [x1, y1, x2, y2] = item.box;
       const color = colors[item.label] || "#d7ff43";
       const x = offsetX + x1 * scale, y = offsetY + y1 * scale;
       const w = (x2 - x1) * scale, h = (y2 - y1) * scale;
       const text = `${item.label} ${Math.round(item.confidence * 100)}%`;
+
+      const side = x + w / 2 < offsetX + drawnW / 2 ? "right" : "left";
+      const calloutW = Math.min(164, stageRect.width * .30);
+      const calloutH = Math.min(128, stageRect.height * .24);
+      const calloutX = side === "right"
+        ? Math.min(stageRect.width - calloutW - 14, offsetX + drawnW - calloutW - 12)
+        : Math.max(14, offsetX + 12);
+      const slot = sideCounts[side]++;
+      const calloutY = Math.min(
+        stageRect.height - calloutH - 14,
+        14 + slot * (calloutH + 12)
+      );
+      const anchorX = side === "right" ? x + w : x;
+      const anchorY = y + h / 2;
+      const targetX = side === "right" ? calloutX : calloutX + calloutW;
+      const targetY = calloutY + calloutH / 2;
+      const elbowX = anchorX + (targetX - anchorX) * .55;
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 9;
+      ctx.globalAlpha = .92;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(anchorX, anchorY);
+      ctx.lineTo(elbowX, anchorY);
+      ctx.lineTo(targetX, targetY);
+      ctx.stroke();
+      ctx.restore();
+
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
       ctx.strokeRect(x, y, w, h);
-      ctx.font = "700 14px Inter, sans-serif";
-      const textWidth = ctx.measureText(text).width + 14;
+
+      ctx.save();
+      ctx.fillStyle = "rgba(5, 5, 5, .94)";
+      ctx.shadowColor = "rgba(0, 0, 0, .75)";
+      ctx.shadowBlur = 18;
+      ctx.fillRect(calloutX, calloutY, calloutW, calloutH);
+      ctx.restore();
+      drawFocusCrop(ctx, source, item.box, payload.image_width, payload.image_height, {
+        x: calloutX + 4,
+        y: calloutY + 29,
+        width: calloutW - 8,
+        height: calloutH - 33
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(calloutX, calloutY, calloutW, calloutH);
       ctx.fillStyle = color;
-      ctx.fillRect(x, Math.max(0, y - 27), textWidth, 27);
+      ctx.fillRect(calloutX, calloutY, calloutW, 27);
+      ctx.font = "800 13px Inter, sans-serif";
       ctx.fillStyle = "#0d0d0c";
-      ctx.fillText(text, x + 7, Math.max(18, y - 9));
+      ctx.fillText(text.toUpperCase(), calloutX + 8, calloutY + 18);
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(anchorX, anchorY, 4, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     detections.innerHTML = payload.detections.length
       ? payload.detections.map(item => `<div class="detection"><strong>${escapeHtml(item.label)}</strong><span>${Math.round(item.confidence * 100)}%</span><small>box ${item.box.map(Math.round).join(", ")}</small></div>`).join("")
       : '<div class="placeholder">No fashion items found above this confidence.</div>';
+  }
+
+  function drawFocusCrop(ctx, image, box, imageWidth, imageHeight, destination) {
+    const [x1, y1, x2, y2] = box;
+    const padX = (x2 - x1) * .28;
+    const padY = (y2 - y1) * .28;
+    let sx = Math.max(0, x1 - padX);
+    let sy = Math.max(0, y1 - padY);
+    let sw = Math.min(imageWidth, x2 + padX) - sx;
+    let sh = Math.min(imageHeight, y2 + padY) - sy;
+    const sourceAspect = sw / sh;
+    const destinationAspect = destination.width / destination.height;
+    if (sourceAspect > destinationAspect) {
+      const croppedWidth = sh * destinationAspect;
+      sx += (sw - croppedWidth) / 2;
+      sw = croppedWidth;
+    } else {
+      const croppedHeight = sw / destinationAspect;
+      sy += (sh - croppedHeight) / 2;
+      sh = croppedHeight;
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(destination.x, destination.y, destination.width, destination.height);
+    ctx.clip();
+    ctx.drawImage(
+      image,
+      sx, sy, sw, sh,
+      destination.x, destination.y, destination.width, destination.height
+    );
+    ctx.restore();
   }
 
   function clearOverlay() {

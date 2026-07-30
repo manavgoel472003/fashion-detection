@@ -3,13 +3,15 @@
 A browser-based clothing detector powered by YOLOv8. Use a browser webcam, a
 Seeed reCamera, or upload a photo to find four fashion categories:
 
-- clothing
+- tops
+- bottoms
 - shoes
 - bags
 - accessories
 
 The repository includes the trained model weights, a FastAPI inference API, and
-a responsive web interface that draws detection boxes in the browser.
+a responsive web interface that draws cinematic detection boxes, connector
+lines, and floating magnified garment crops over the live image.
 
 ## Run locally
 

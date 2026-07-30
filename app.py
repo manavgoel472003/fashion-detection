@@ -168,6 +168,7 @@ def run_detection(image: np.ndarray, confidence: float) -> dict[str, Any]:
                     "class_id": class_id,
                 }
             )
+    detections = normalize_garment_categories(detections, width=width, height=height)
     detections.sort(key=lambda item: item["confidence"], reverse=True)
     return {
         "ok": True,
@@ -176,6 +177,44 @@ def run_detection(image: np.ndarray, confidence: float) -> dict[str, Any]:
         "count": len(detections),
         "detections": detections,
     }
+
+
+def normalize_garment_categories(
+    detections: list[dict[str, Any]],
+    *,
+    width: int,
+    height: int,
+) -> list[dict[str, Any]]:
+    """Split generic clothing regions into top and bottom garment categories."""
+    normalized: list[dict[str, Any]] = []
+    waist_y = height * 0.56
+    minimum_segment_height = height * 0.10
+
+    for detection in detections:
+        if detection["label"] != "clothing":
+            normalized.append(detection)
+            continue
+
+        x1, y1, x2, y2 = detection["box"]
+        crosses_waist = (
+            y1 < waist_y < y2
+            and waist_y - y1 >= minimum_segment_height
+            and y2 - waist_y >= minimum_segment_height
+            and y2 - y1 >= height * 0.28
+        )
+        if crosses_waist:
+            overlap = height * 0.025
+            top = dict(detection)
+            top.update(label="top", class_id=10, box=[x1, y1, x2, min(y2, waist_y + overlap)])
+            bottom = dict(detection)
+            bottom.update(label="bottom", class_id=11, box=[x1, max(y1, waist_y - overlap), x2, y2])
+            normalized.extend((top, bottom))
+        else:
+            garment = dict(detection)
+            garment.update(label="top" if (y1 + y2) / 2.0 < waist_y else "bottom")
+            normalized.append(garment)
+
+    return normalized
 
 
 def port_reachable(host: str, port: int, timeout: float = 1.0) -> bool:
