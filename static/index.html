@@ -95,8 +95,8 @@
         <canvas id="overlay"></canvas>
       </div>
       <div class="toolbar">
-        <button id="cameraButton">Start camera</button>
-        <button class="secondary" id="recameraButton">Start reCamera</button>
+        <button class="secondary" id="cameraButton">Start webcam</button>
+        <button id="recameraButton">Start reCamera</button>
         <button class="secondary" id="detectButton" disabled>Detect frame</button>
         <label class="file-button" for="fileInput">Choose image</label>
         <input id="fileInput" type="file" accept="image/*">
@@ -154,7 +154,7 @@
       stream = null;
       video.srcObject = null;
       source = null;
-      cameraButton.textContent = "Start camera";
+      cameraButton.textContent = "Start webcam";
       detectButton.disabled = true;
       status.textContent = "Camera stopped";
       return;
@@ -168,7 +168,7 @@
       preview.style.display = "none";
       video.style.display = "block";
       empty.style.display = "none";
-      cameraButton.textContent = "Stop camera";
+      cameraButton.textContent = "Stop webcam";
       detectButton.disabled = false;
       status.textContent = "Camera ready";
       clearOverlay();
@@ -186,7 +186,7 @@
       stream.getTracks().forEach(track => track.stop());
       stream = null;
       video.srcObject = null;
-      cameraButton.textContent = "Start camera";
+      cameraButton.textContent = "Start webcam";
     }
     const host = recameraHost.value.trim();
     if (!host) {
@@ -307,7 +307,7 @@
     if (recameraActive) recameraGeneration += 1;
     recameraActive = false;
     recameraButton.textContent = "Start reCamera";
-    recameraButton.classList.add("secondary");
+    recameraButton.classList.remove("secondary");
     recameraHost.disabled = false;
     if (message) status.textContent = message;
     detectButton.disabled = !source;
@@ -365,6 +365,7 @@
     return node.innerHTML;
   }
   window.addEventListener("resize", clearOverlay);
+  window.addEventListener("load", () => setTimeout(() => recameraButton.click(), 250));
 </script>
 </body>
 </html>
