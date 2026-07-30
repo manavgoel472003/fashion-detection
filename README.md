@@ -19,12 +19,16 @@ Python 3.10–3.12 is recommended.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 Open <http://localhost:8000>. Webcam access works on `localhost` or behind
 HTTPS. The model runs on CPU by default and automatically uses CUDA when
 available.
+
+See [INSTALL.md](INSTALL.md) for complete Linux, macOS, Windows, GPU, and
+environment configuration instructions.
 
 ## API
 
@@ -72,6 +76,8 @@ reports model availability.
 ```text
 .
 ├── app.py
+├── .env.example
+├── INSTALL.md
 ├── models/
 │   └── yolov8n-clothing-detection.pt
 ├── static/

@@ -11,11 +11,13 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from PIL import Image
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from ultralytics import YOLO
 
 
 ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / ".env")
 MODEL_PATH = Path(os.getenv("FASHION_MODEL_PATH", ROOT / "models" / "yolov8n-clothing-detection.pt"))
 DEFAULT_CONFIDENCE = float(os.getenv("FASHION_CONFIDENCE", "0.35"))
 DEFAULT_IMAGE_SIZE = int(os.getenv("FASHION_IMAGE_SIZE", "640"))
