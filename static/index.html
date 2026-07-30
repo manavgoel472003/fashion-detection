@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fashion Lens — Clothing Detection</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f8f7f2;
+      --muted: #9b9a94;
+      --panel: rgba(25, 25, 23, .82);
+      --line: rgba(255, 255, 255, .12);
+      --accent: #d7ff43;
+      --danger: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(circle at 15% 15%, rgba(215,255,67,.14), transparent 28rem),
+        radial-gradient(circle at 90% 80%, rgba(116,82,255,.16), transparent 30rem),
+        #0d0d0c;
+    }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 34px 0 52px; }
+    header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 4px 0 0; font-size: clamp(34px, 6vw, 70px); line-height: .95; letter-spacing: -.055em; }
+    .subhead { max-width: 430px; color: var(--muted); text-align: right; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; }
+    .panel { border: 1px solid var(--line); border-radius: 22px; background: var(--panel); backdrop-filter: blur(16px); overflow: hidden; }
+    .stage { position: relative; min-height: 520px; display: grid; place-items: center; background: #050505; }
+    video, canvas, #preview { display: block; max-width: 100%; max-height: 72vh; }
+    video, #preview { width: 100%; height: 100%; object-fit: contain; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #preview { display: none; }
+    .empty { position: absolute; max-width: 340px; color: var(--muted); text-align: center; padding: 24px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; border-top: 1px solid var(--line); }
+    button, .file-button {
+      appearance: none; border: 0; border-radius: 999px; padding: 11px 17px;
+      color: #111; background: var(--accent); font: inherit; font-weight: 750; cursor: pointer;
+    }
+    button.secondary, .file-button { color: var(--ink); background: #292926; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input[type=file] { display: none; }
+    aside { padding: 20px; }
+    .status { display: flex; align-items: center; gap: 9px; margin-bottom: 20px; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 18px var(--accent); }
+    .control { margin: 18px 0 24px; }
+    .control label { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    h2 { margin: 24px 0 12px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+    #detections { display: grid; gap: 8px; }
+    .detection { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.055); }
+    .detection strong { text-transform: capitalize; }
+    .detection small { grid-column: 1 / -1; color: var(--muted); }
+    .placeholder { color: var(--muted); padding: 12px 0; }
+    .legend { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 800px) {
+      header { display: block; }
+      .subhead { margin-top: 12px; text-align: left; }
+      .grid { grid-template-columns: 1fr; }
+      .stage { min-height: 380px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">Computer vision demo</div>
+      <h1>Fashion Lens</h1>
+    </div>
+    <div class="subhead">Point your camera at an outfit or upload an image to detect clothing, shoes, bags, and accessories.</div>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="stage" id="stage">
+        <div class="empty" id="empty">Start your camera or choose an image. Processing stays on this server.</div>
+        <video id="video" autoplay muted playsinline></video>
+        <img id="preview" alt="Uploaded image preview">
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="toolbar">
+        <button id="cameraButton">Start camera</button>
+        <button class="secondary" id="detectButton" disabled>Detect frame</button>
+        <label class="file-button" for="fileInput">Choose image</label>
+        <input id="fileInput" type="file" accept="image/*">
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="status"><span class="dot"></span><span id="status">Ready</span></div>
+      <div class="control">
+        <label for="confidence"><span>Confidence</span><strong id="confidenceValue">35%</strong></label>
+        <input id="confidence" type="range" min="10" max="90" value="35">
+      </div>
+      <div class="legend">
+        <span class="chip">Clothing</span><span class="chip">Shoes</span>
+        <span class="chip">Bags</span><span class="chip">Accessories</span>
+      </div>
+      <h2>Detections</h2>
+      <div id="detections"><div class="placeholder">Nothing analyzed yet.</div></div>
+    </aside>
+  </div>
+</main>
+
+<script>
+  const video = document.querySelector("#video");
+  const preview = document.querySelector("#preview");
+  const overlay = document.querySelector("#overlay");
+  const stage = document.querySelector("#stage");
+  const empty = document.querySelector("#empty");
+  const cameraButton = document.querySelector("#cameraButton");
+  const detectButton = document.querySelector("#detectButton");
+  const fileInput = document.querySelector("#fileInput");
+  const confidence = document.querySelector("#confidence");
+  const confidenceValue = document.querySelector("#confidenceValue");
+  const status = document.querySelector("#status");
+  const detections = document.querySelector("#detections");
+  let stream = null;
+  let source = null;
+  let busy = false;
+  const colors = { clothing: "#d7ff43", shoes: "#ff8f66", bags: "#8e7cff", accessories: "#55dfff" };
+
+  confidence.addEventListener("input", () => confidenceValue.textContent = `${confidence.value}%`);
+
+  cameraButton.addEventListener("click", async () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+      source = null;
+      cameraButton.textContent = "Start camera";
+      detectButton.disabled = true;
+      status.textContent = "Camera stopped";
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      source = video;
+      preview.style.display = "none";
+      video.style.display = "block";
+      empty.style.display = "none";
+      cameraButton.textContent = "Stop camera";
+      detectButton.disabled = false;
+      status.textContent = "Camera ready";
+      clearOverlay();
+    } catch (error) {
+      status.textContent = `Camera unavailable: ${error.message}`;
+    }
+  });
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    preview.onload = () => {
+      source = preview;
+      video.style.display = "none";
+      preview.style.display = "block";
+      empty.style.display = "none";
+      detectButton.disabled = false;
+      status.textContent = "Image ready";
+      clearOverlay();
+      runDetection();
+      URL.revokeObjectURL(url);
+    };
+    preview.src = url;
+  });
+
+  detectButton.addEventListener("click", runDetection);
+
+  async function runDetection() {
+    if (!source || busy) return;
+    busy = true;
+    detectButton.disabled = true;
+    status.textContent = "Analyzing…";
+    try {
+      const capture = document.createElement("canvas");
+      capture.width = source.videoWidth || source.naturalWidth;
+      capture.height = source.videoHeight || source.naturalHeight;
+      capture.getContext("2d").drawImage(source, 0, 0, capture.width, capture.height);
+      const response = await fetch("/api/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: capture.toDataURL("image/jpeg", .9), confidence: Number(confidence.value) / 100 })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Detection failed");
+      render(payload);
+      status.textContent = `${payload.count} item${payload.count === 1 ? "" : "s"} detected`;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      busy = false;
+      detectButton.disabled = false;
+    }
+  }
+
+  function render(payload) {
+    const rect = source.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    overlay.width = stageRect.width * devicePixelRatio;
+    overlay.height = stageRect.height * devicePixelRatio;
+    overlay.style.width = `${stageRect.width}px`;
+    overlay.style.height = `${stageRect.height}px`;
+    const ctx = overlay.getContext("2d");
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    const scale = Math.min(rect.width / payload.image_width, rect.height / payload.image_height);
+    const drawnW = payload.image_width * scale;
+    const drawnH = payload.image_height * scale;
+    const offsetX = rect.left - stageRect.left + (rect.width - drawnW) / 2;
+    const offsetY = rect.top - stageRect.top + (rect.height - drawnH) / 2;
+
+    for (const item of payload.detections) {
+      const [x1, y1, x2, y2] = item.box;
+      const color = colors[item.label] || "#d7ff43";
+      const x = offsetX + x1 * scale, y = offsetY + y1 * scale;
+      const w = (x2 - x1) * scale, h = (y2 - y1) * scale;
+      const text = `${item.label} ${Math.round(item.confidence * 100)}%`;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, w, h);
+      ctx.font = "700 14px Inter, sans-serif";
+      const textWidth = ctx.measureText(text).width + 14;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, Math.max(0, y - 27), textWidth, 27);
+      ctx.fillStyle = "#0d0d0c";
+      ctx.fillText(text, x + 7, Math.max(18, y - 9));
+    }
+
+    detections.innerHTML = payload.detections.length
+      ? payload.detections.map(item => `<div class="detection"><strong>${escapeHtml(item.label)}</strong><span>${Math.round(item.confidence * 100)}%</span><small>box ${item.box.map(Math.round).join(", ")}</small></div>`).join("")
+      : '<div class="placeholder">No fashion items found above this confidence.</div>';
+  }
+
+  function clearOverlay() {
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    detections.innerHTML = '<div class="placeholder">Nothing analyzed yet.</div>';
+  }
+  function escapeHtml(value) {
+    const node = document.createElement("span");
+    node.textContent = value;
+    return node.innerHTML;
+  }
+  window.addEventListener("resize", clearOverlay);
+</script>
+</body>
+</html>
+
