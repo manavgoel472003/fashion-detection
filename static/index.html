@@ -52,6 +52,14 @@
     .control { margin: 18px 0 24px; }
     .control label { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); }
     input[type=range] { width: 100%; accent-color: var(--accent); }
+    .recamera-settings { margin: 0 0 22px; padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.035); }
+    .recamera-settings label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .recamera-settings input {
+      width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px;
+      color: var(--ink); background: #11110f; font: inherit; outline: none;
+    }
+    .recamera-settings input:focus { border-color: var(--accent); }
+    .recamera-settings small { display: block; margin-top: 7px; color: var(--muted); }
     h2 { margin: 24px 0 12px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
     #detections { display: grid; gap: 8px; }
     .detection { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.055); }
@@ -88,6 +96,7 @@
       </div>
       <div class="toolbar">
         <button id="cameraButton">Start camera</button>
+        <button class="secondary" id="recameraButton">Start reCamera</button>
         <button class="secondary" id="detectButton" disabled>Detect frame</button>
         <label class="file-button" for="fileInput">Choose image</label>
         <input id="fileInput" type="file" accept="image/*">
@@ -96,6 +105,11 @@
 
     <aside class="panel">
       <div class="status"><span class="dot"></span><span id="status">Ready</span></div>
+      <div class="recamera-settings">
+        <label for="recameraHost">reCamera address</label>
+        <input id="recameraHost" value="192.168.42.1" autocomplete="off" spellcheck="false">
+        <small>Uses the preview stream on port 8090.</small>
+      </div>
       <div class="control">
         <label for="confidence"><span>Confidence</span><strong id="confidenceValue">35%</strong></label>
         <input id="confidence" type="range" min="10" max="90" value="35">
@@ -117,6 +131,8 @@
   const stage = document.querySelector("#stage");
   const empty = document.querySelector("#empty");
   const cameraButton = document.querySelector("#cameraButton");
+  const recameraButton = document.querySelector("#recameraButton");
+  const recameraHost = document.querySelector("#recameraHost");
   const detectButton = document.querySelector("#detectButton");
   const fileInput = document.querySelector("#fileInput");
   const confidence = document.querySelector("#confidence");
@@ -126,6 +142,8 @@
   let stream = null;
   let source = null;
   let busy = false;
+  let recameraActive = false;
+  let recameraGeneration = 0;
   const colors = { clothing: "#d7ff43", shoes: "#ff8f66", bags: "#8e7cff", accessories: "#55dfff" };
 
   confidence.addEventListener("input", () => confidenceValue.textContent = `${confidence.value}%`);
@@ -142,6 +160,7 @@
       return;
     }
     try {
+      stopRecamera();
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
       video.srcObject = stream;
       await video.play();
@@ -158,9 +177,45 @@
     }
   });
 
+  recameraButton.addEventListener("click", async () => {
+    if (recameraActive) {
+      stopRecamera("reCamera stopped");
+      return;
+    }
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+      cameraButton.textContent = "Start camera";
+    }
+    const host = recameraHost.value.trim();
+    if (!host) {
+      status.textContent = "Enter a reCamera address";
+      return;
+    }
+    const generation = ++recameraGeneration;
+    recameraActive = true;
+    recameraButton.textContent = "Stop reCamera";
+    recameraButton.classList.remove("secondary");
+    recameraHost.disabled = true;
+    detectButton.disabled = true;
+    status.textContent = `Checking reCamera at ${host}…`;
+    try {
+      const response = await fetch(`/api/recamera/status?host=${encodeURIComponent(host)}&port=8090`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "reCamera check failed");
+      if (!payload.stream_reachable) throw new Error(payload.hint || "reCamera stream port 8090 is unavailable");
+      status.textContent = `Connected to reCamera ${host}`;
+      runRecameraLoop(generation, host);
+    } catch (error) {
+      if (generation === recameraGeneration) stopRecamera(error.message);
+    }
+  });
+
   fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
     if (!file) return;
+    stopRecamera();
     const url = URL.createObjectURL(file);
     preview.onload = () => {
       source = preview;
@@ -203,6 +258,63 @@
       busy = false;
       detectButton.disabled = false;
     }
+  }
+
+  async function runRecameraLoop(generation, host) {
+    while (recameraActive && generation === recameraGeneration) {
+      try {
+        status.textContent = `Analyzing reCamera ${host}…`;
+        const response = await fetch("/api/recamera/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            host,
+            port: 8090,
+            confidence: Number(confidence.value) / 100
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "reCamera detection failed");
+        if (!recameraActive || generation !== recameraGeneration) return;
+        await showRecameraFrame(payload);
+        status.textContent = `reCamera live · ${payload.count} item${payload.count === 1 ? "" : "s"}`;
+        await delay(120);
+      } catch (error) {
+        if (generation === recameraGeneration) stopRecamera(error.message);
+        return;
+      }
+    }
+  }
+
+  function showRecameraFrame(payload) {
+    return new Promise(resolve => {
+      preview.onload = () => {
+        if (recameraActive) {
+          source = preview;
+          video.style.display = "none";
+          preview.style.display = "block";
+          empty.style.display = "none";
+          render(payload);
+        }
+        resolve();
+      };
+      preview.onerror = resolve;
+      preview.src = `data:image/jpeg;base64,${payload.image}`;
+    });
+  }
+
+  function stopRecamera(message = null) {
+    if (recameraActive) recameraGeneration += 1;
+    recameraActive = false;
+    recameraButton.textContent = "Start reCamera";
+    recameraButton.classList.add("secondary");
+    recameraHost.disabled = false;
+    if (message) status.textContent = message;
+    detectButton.disabled = !source;
+  }
+
+  function delay(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
   }
 
   function render(payload) {
@@ -256,4 +368,3 @@
 </script>
 </body>
 </html>
-

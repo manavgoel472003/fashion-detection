@@ -78,6 +78,9 @@ Available settings:
 | `FASHION_MODEL_PATH` | `models/yolov8n-clothing-detection.pt` | Model weights path |
 | `FASHION_CONFIDENCE` | `0.35` | Default detection confidence, from `0.05` to `0.95` |
 | `FASHION_IMAGE_SIZE` | `640` | YOLO inference resolution |
+| `RECAMERA_HOST` | `192.168.42.1` | Default Seeed reCamera IP or hostname |
+| `RECAMERA_PORT` | `8090` | JSON preview WebSocket port |
+| `RECAMERA_TIMEOUT` | `5` | Stream connection timeout in seconds |
 
 The application automatically loads `.env` at startup. Do not commit `.env`;
 it is already excluded by `.gitignore`.
@@ -129,6 +132,21 @@ FASHION_MODEL_PATH=/absolute/path/to/model.pt
 - Use `localhost` when running locally.
 - Use HTTPS when accessing the demo from another computer.
 - Image upload remains available when no camera is present.
+
+### reCamera dashboard works but the stream does not
+
+The reCamera dashboard uses port `80`, while this demo receives JSON preview
+frames from port `8090`. Check both from the host running the demo:
+
+```bash
+curl -I http://192.168.42.1
+curl "http://localhost:8000/api/recamera/status?host=192.168.42.1&port=8090"
+```
+
+If `dashboard_reachable` is true but `stream_reachable` is false, open the
+reCamera dashboard or Node-RED editor and deploy/start the preview flow that
+publishes the WebSocket on port `8090`. If the camera is connected over Wi-Fi
+or Ethernet, replace `192.168.42.1` with its assigned address.
 
 ### Slow first detection
 

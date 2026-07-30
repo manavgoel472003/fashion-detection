@@ -1,7 +1,7 @@
 # Fashion Detection Demo
 
-A browser-based clothing detector powered by YOLOv8. Use a webcam or upload a
-photo to find four fashion categories:
+A browser-based clothing detector powered by YOLOv8. Use a browser webcam, a
+Seeed reCamera, or upload a photo to find four fashion categories:
 
 - clothing
 - shoes
@@ -29,6 +29,27 @@ available.
 
 See [INSTALL.md](INSTALL.md) for complete Linux, macOS, Windows, GPU, and
 environment configuration instructions.
+
+## Use a Seeed reCamera
+
+Connect the reCamera over USB or the same network. The default USB-network
+address is `192.168.42.1`.
+
+1. Confirm its dashboard opens at <http://192.168.42.1>.
+2. In the reCamera dashboard/Node-RED interface, deploy or start the preview
+   flow so its JSON WebSocket is available on port `8090`.
+3. Start this application, enter the reCamera IP in the sidebar, and select
+   **Start reCamera**.
+
+The application reads frames from `ws://<host>:8090`, runs the bundled fashion
+model on the host computer, and displays the annotated live result. A Reachy
+Mini is optional.
+
+Check connectivity from the API:
+
+```bash
+curl "http://localhost:8000/api/recamera/status?host=192.168.42.1&port=8090"
+```
 
 ## API
 
@@ -70,6 +91,9 @@ reports model availability.
 | `FASHION_MODEL_PATH` | `models/yolov8n-clothing-detection.pt` | Path to the YOLO weights |
 | `FASHION_CONFIDENCE` | `0.35` | Default confidence threshold |
 | `FASHION_IMAGE_SIZE` | `640` | Inference image size |
+| `RECAMERA_HOST` | `192.168.42.1` | Default reCamera host |
+| `RECAMERA_PORT` | `8090` | reCamera JSON preview WebSocket port |
+| `RECAMERA_TIMEOUT` | `5` | Connection timeout in seconds |
 
 ## Project layout
 
@@ -86,4 +110,3 @@ reports model availability.
 ```
 
 Do not commit API keys or tokens. Local `.env` files are ignored by Git.
-
